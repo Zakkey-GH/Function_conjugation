@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>Typの達人</title>
+<link rel="stylesheet"  href="./css/style.css" />
+<script src="https://ajax.googleapis.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
+</head>
+<body>
+
+<!-- コンテンツ表示画面 -->
+<div>
+    <div class="container">
+        <h1>Typの達人</h1>
+        <div class="navegate"> キャラを選ぶドン </div>
+        <div class="icon-choice">
+            <img id="icon01" src="./img/bustup-zundamon.webp" alt="" data-value="3">
+            <img id="icon02" src="./img/bustup-nurserobo_typet.webp" alt="" data-value="47">
+            <img id="icon03" src="./img/bustup-wakamatsu_akashi.webp" alt="" data-value="52">
+        </div>
+        <div class="navegate"> 名前を決めるドン </div>
+        <textarea name="名前" id="uname" rows="1" placeholder="名前"></textarea>
+        <div class="sendMsg">
+            <textarea id="text" cols="30" rows="10"></textarea>
+            <button id="send">送信</button>
+        </div>
+        <div id="output" stayle="height:340px; overflow:auto; "></div>
+    </div>
+
+
+
+<!--** 以下Firebase **-->
+<script type="module">
+    // Import the functions you need from the SDKs you need
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-app.js";
+    import { getDatabase, ref, push, set, update, onChildAdded, remove, onChildRemoved, onChildChanged } 
+    from "https://www.gstatic.com/firebasejs/11.0.1/firebase-database.js";
+
+    // TODO: Add SDKs for Firebase products that you want to use
+    // https://firebase.google.com/docs/web/setup#available-libraries
+  
+    // Your web app's Firebase configuration"
+    const firebaseConfig = {
+      apiKey: "******************",
+      authDomain: "******************",
+      projectId: "******************",
+      storageBucket: "******************",
+      messagingSenderId: "******************",
+      appId: "******************"
+    };
+  
+
+
+    // Initialize Firebase
+    const app = initializeApp(firebaseConfig);
+    const db = getDatabase(app);
+    const dbRef = ref(db,"chat"); //firebaseを作成した時に命名したものが chat 
+
+
+    //-----------グローバル変数定義----------------------
+    let selectedIcon = ""; //アイコン情報を格納するための箱を用意
+    let SpkrId ;
+
+
+    //-----------関数定義----------------------   
+
+    //受け渡し情報の関数
+    function Postdb(){
+        let alldate = new Date();
+        let hour = alldate.getHours();
+        let min = alldate.getMinutes();
+        const contens = {
+            
+            uname : $("#uname").val(),
+            text : $("#text").val(),
+            icon : selectedIcon,
+
+        };
+        const NewPostRef = push(dbRef);
+        set(NewPostRef, contens);
+    };
+
+    //-----------テキストの読み上げ---------------------- 
+    function readText(TextData,SpkrId){
+        // VOICEVOX APIエンドポイントの設定
+        const speakerId = SpkrId; // ずんだもん（ノーマル） IDは3
+        const audioQueryUrl = `http://localhost:50021/audio_query?text=${encodeURIComponent(TextData)}&speaker=${speakerId}`;
+        const synthesisUrl = `http://localhost:50021/synthesis?speaker=${speakerId}`;
+
+        // audio_query APIを使って音声合成の準備
+        $.post(audioQueryUrl, function(queryData) {
+            // synthesis APIを使って音声データを生成
+            $.ajax({
+                url: synthesisUrl,
+                type: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify(queryData),
+                xhrFields: {
+                    responseType: 'blob' // Blob形式でレスポンスを受け取る
+                },
+                success: function(audioBlob) {
+                    // 音声を再生
+                    const audioUrl = URL.createObjectURL(audioBlob);
+                    const audio = new Audio(audioUrl);
+                    audio.play();
+                },
+                error: function(error) {
+                    console.error("エラーが発生しました:", error);
+                    alert("音声合成に失敗しました。VOICEVOXエンジンが起動しているか確認してください。");
+                }
+            });
+        }).fail(function(error) {
+            console.error("エラーが発生しました:", error);
+            alert("音声合成クエリの生成に失敗しました。");
+            });
+    }
+
+
+
+
+    //-----------メイン処理----------------------
+
+    //キャラ選定による情報の付加
+    $(".icon-choice img").on("click", function () {
+        selectedIcon = $(this).attr("src"); // アイコンのURLを取得
+        $(".icon-choice img").removeClass("selected"); // １こだけ選択できる状態にするため
+        $(this).addClass("selected"); // 選択したアイコンにクラス追加
+        SpkrId = $(this).data('value');
+        console.log("キャラ選択時のsrc",selectedIcon);
+    });
+
+
+    //データ送信
+    $("#send").on("click",function(){
+        Postdb();
+        const TextData = $("#text").val();
+        readText(TextData,SpkrId);
+    });
+
+
+    // 受信処理
+    onChildAdded(dbRef,function(data){
+        const contents = data.val();
+        const key = data.key;
+        let h   = '<p id="'+key+'">';
+            h  += contents.uname;
+            h += '<img src="'+contents.icon+'" class="chat-icon" alt="アイ">';
+            h  += '<br>';
+            h  += '<span contentEditable= "true" id = "'+key+'_update">'+ contents.text+' </span>';
+            h  += '<span class="remove" data-key="'+key+'"> 削除</span>';
+            h  += '<span class="update" data-key="'+key+'"> 更新</span>';
+            h  += '</p>';
+            $("#output").prepend(h);
+    });
+
+
+    //削除イベント
+    $("#output").on("click", ".remove", function(){
+        const key = $(this).attr("data-key");
+        const remove_item = ref(db,"chat/"+key);
+        remove(remove_item).then(() => { //この構文で削除と更新が動く
+            $("#"+key).remove();
+        });
+    });
+
+
+    //更新イベント
+    $("#output").on("click", ".update", function(){
+        const key = $(this).attr("data-key");
+        update(ref(db,"chat/"+key),{
+            text: $("#"+key+'_update').html()
+        });
+    });
+
+
+    //削除処理がFirebase側で実行されたらイベント発生
+    onChildRemoved(dbRef,(data) => {
+        $("#"+data.key).remove();
+    });
+
+
+    //更新処理がFirebase側で実行されたらイベント発生
+    onChildChanged(dbRef,(data) => {
+        $("#"+data.key+'_update').html(data.val().text);
+        $("#"+data.key+'_update').fadeOut(800).fadeIn(800);
+    });
+
+
+    //エンターキー
+    $("#text").on("keydown",function(e){
+        if(e.keyCode==13){
+            Postdb();
+            const TextData = $("#text").val();
+            readText(TextData,SpkrId);
+        }
+    });
+
+
+
+
+
+</script>
+
+ 
+
+
+
+
+
+
+
+
+
+</body>
+</html>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
